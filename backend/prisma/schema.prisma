@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PAID
+  CANCELLED
+}
+
+model Product {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  price     Int
+  stock     Int      @default(0)
+  createdAt DateTime @default(now())
+  orders    Order[]
+}
+
+model LiveSession {
+  id        String    @id @default(cuid())
+  fbVideoId String?   @unique
+  title     String
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+  comments  Comment[]
+  orders    Order[]
+}
+
+model Comment {
+  id            String       @id @default(cuid())
+  fbCommentId   String       @unique
+  fbUserId      String
+  userName      String?
+  message       String
+  createdAt     DateTime     @default(now())
+  liveSessionId String?
+  liveSession   LiveSession? @relation(fields: [liveSessionId], references: [id])
+}
+
+model Order {
+  id            String       @id @default(cuid())
+  status        OrderStatus  @default(PENDING)
+  quantity      Int          @default(1)
+  customerFbId  String
+  customerName  String?
+  createdAt     DateTime     @default(now())
+  productId     String
+  product       Product      @relation(fields: [productId], references: [id])
+  liveSessionId String?
+  liveSession   LiveSession? @relation(fields: [liveSessionId], references: [id])
+}
