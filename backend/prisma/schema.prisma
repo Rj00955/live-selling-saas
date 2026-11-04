@@ -56,4 +56,5 @@ model Order {
   product       Product      @relation(fields: [productId], references: [id])
   liveSessionId String?
   liveSession   LiveSession? @relation(fields: [liveSessionId], references: [id])
+  sourceCommentId String?      @unique
 }
