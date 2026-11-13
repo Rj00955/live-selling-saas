@@ -1,7 +1,8 @@
+
 import type { FastifyInstance } from "fastify";
 import crypto from "node:crypto";
 import { prisma } from "./db.js";
-import { extractProductCode } from "./order-parser.js";
+import { classifyComment } from "./order-parser.js";
 import { createOrderFromComment } from "./order-service.js";
 
 export async function webhookRoutes(app: FastifyInstance) {
@@ -99,43 +100,58 @@ export async function webhookRoutes(app: FastifyInstance) {
               },
             });
 
-            // 2. Extraire le code produit du commentaire.
-            const productCode = extractProductCode(message);
+            // 2. Extraire le code produit et la quantité.
+            const parsed = classifyComment(message);
 
-            // Aucun code reconnu : commentaire enregistré, pas de commande.
-            if (!productCode) {
-              req.log.info(
-                { commentId, message },
-                "Comment saved without a recognized product code"
-              );
-              continue;
-            }
+if (parsed.intent !== "PURCHASE" || !parsed.productCode) {
+  req.log.info(
+    {
+      commentId,
+      message,
+      intent: parsed.intent,
+    },
+    "Comment saved without creating an order"
+  );
+  continue;
+}
 
-            // 3. Créer la commande et mettre à jour le stock.
+const { productCode, quantity } = parsed;
+
+            // 3. Créer la commande et déduire la quantité du stock.
             const result = await createOrderFromComment({
               productCode,
-              quantity: 1,
+              quantity,
               customerFbId,
               customerName,
               sourceCommentId: commentId,
             });
 
-           if (result.success && result.order) {
-  req.log.info(
-    { commentId, productCode, orderId: result.order.id },
-    "Order created from Facebook comment",
-  );
-} else if ("duplicate" in result && result.duplicate) {
-  req.log.info(
-    { commentId, productCode },
-    "Duplicate comment ignored",
-  );
-} else {
-  req.log.info(
-    { commentId, productCode, message: result.message },
-    "No order created from Facebook comment",
-  );
-} 
+            if (result.success && result.order) {
+              req.log.info(
+                {
+                  commentId,
+                  productCode,
+                  quantity,
+                  orderId: result.order.id,
+                },
+                "Order created from Facebook comment"
+              );
+            } else if ("duplicate" in result && result.duplicate) {
+              req.log.info(
+                { commentId, productCode },
+                "Duplicate comment ignored"
+              );
+            } else {
+              req.log.info(
+                {
+                  commentId,
+                  productCode,
+                  quantity,
+                  message: result.message,
+                },
+                "No order created from Facebook comment"
+              );
+            }
           }
         }
       }

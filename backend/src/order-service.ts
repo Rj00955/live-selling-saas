@@ -133,3 +133,99 @@ export async function createOrderFromComment(input: CreateOrderInput) {
     throw error;
   }
 }
+export async function confirmOrder(orderId: string) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+    });
+
+    if (!order) {
+      return {
+        success: false,
+        message: "Commande introuvable.",
+      };
+    }
+
+    if (order.status !== "PENDING") {
+      return {
+        success: false,
+        message: "Seules les commandes en attente peuvent être confirmées.",
+      };
+    }
+
+    const updated = await tx.order.updateMany({
+      where: {
+        id: orderId,
+        status: "PENDING",
+      },
+      data: {
+        status: "CONFIRMED",
+      },
+    });
+
+    if (updated.count !== 1) {
+      return {
+        success: false,
+        message: "La commande a déjà été modifiée.",
+      };
+    }
+
+    return {
+      success: true,
+      message: "Commande confirmée.",
+    };
+  });
+}
+
+export async function cancelOrder(orderId: string) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+    });
+
+    if (!order) {
+      return {
+        success: false,
+        message: "Commande introuvable.",
+      };
+    }
+
+    if (order.status !== "PENDING") {
+      return {
+        success: false,
+        message: "Seules les commandes en attente peuvent être annulées.",
+      };
+    }
+
+    const updated = await tx.order.updateMany({
+      where: {
+        id: orderId,
+        status: "PENDING",
+      },
+      data: {
+        status: "CANCELLED",
+      },
+    });
+
+    if (updated.count !== 1) {
+      return {
+        success: false,
+        message: "La commande a déjà été modifiée.",
+      };
+    }
+
+    await tx.product.update({
+      where: { id: order.productId },
+      data: {
+        stock: {
+          increment: order.quantity,
+        },
+      },
+    });
+
+    return {
+      success: true,
+      message: "Commande annulée et stock restitué.",
+    };
+  });
+}
