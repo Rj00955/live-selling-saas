@@ -1,3 +1,4 @@
+
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db.js";
 
@@ -7,25 +8,32 @@ type CreateOrderInput = {
   customerFbId: string;
   customerName?: string | null;
   sourceCommentId: string;
+  size?: string | null;
+  color?: string | null;
 };
+
+const RESERVATION_HOURS = 24;
 
 export async function createOrderFromComment(input: CreateOrderInput) {
   const productCode = input.productCode.trim().toUpperCase();
   const quantity = input.quantity ?? 1;
   const sourceCommentId = input.sourceCommentId.trim();
+  const customerFbId = input.customerFbId.trim();
+  const size = input.size?.trim().toUpperCase() || null;
+  const color = input.color?.trim().toUpperCase() || null;
 
   if (!productCode) {
     return { success: false, message: "Code produit manquant." };
   }
 
-  if (!Number.isInteger(quantity) || quantity < 1) {
+  if (!Number.isSafeInteger(quantity) || quantity < 1) {
     return {
       success: false,
       message: "La quantité doit être un entier positif.",
     };
   }
 
-  if (!input.customerFbId.trim() || !sourceCommentId) {
+  if (!customerFbId || !sourceCommentId) {
     return {
       success: false,
       message: "Identifiant client ou commentaire manquant.",
@@ -34,7 +42,6 @@ export async function createOrderFromComment(input: CreateOrderInput) {
 
   try {
     const order = await prisma.$transaction(async (tx) => {
-      // Vérification rapide : le commentaire a-t-il déjà créé une commande ?
       const existingOrder = await tx.order.findUnique({
         where: { sourceCommentId },
       });
@@ -45,73 +52,160 @@ export async function createOrderFromComment(input: CreateOrderInput) {
 
       const product = await tx.product.findUnique({
         where: { code: productCode },
+        include: { variants: true },
       });
+
+      const customer = await tx.customer.upsert({
+  where: {
+    fbUserId: customerFbId,
+  },
+  update: {
+    name: input.customerName ?? undefined,
+  },
+  create: {
+    fbUserId: customerFbId,
+    name: input.customerName ?? null,
+  },
+});
 
       if (!product) {
         throw new Error("PRODUCT_NOT_FOUND");
       }
 
-      // Mise à jour atomique : le stock ne peut pas devenir négatif.
-      const stockUpdate = await tx.product.updateMany({
-        where: {
-          id: product.id,
-          stock: { gte: quantity },
-        },
-        data: {
-          stock: { decrement: quantity },
-        },
-      });
+      let productVariantId: string | null = null;
 
-      if (stockUpdate.count !== 1) {
-        throw new Error("INSUFFICIENT_STOCK");
+      if (product.hasVariants) {
+        if (product.variants.length === 0) {
+          throw new Error("VARIANTS_NOT_CONFIGURED");
+        }
+
+        // Détermine les dimensions réellement utilisées par ce produit.
+        const requiresSize = product.variants.some(
+          (variant) => variant.size !== null,
+        );
+        const requiresColor = product.variants.some(
+          (variant) => variant.color !== null,
+        );
+
+        if (requiresSize && !size && requiresColor && !color) {
+          throw new Error("SIZE_AND_COLOR_REQUIRED");
+        }
+
+        if (requiresSize && !size) {
+          throw new Error("SIZE_REQUIRED");
+        }
+
+        if (requiresColor && !color) {
+          throw new Error("COLOR_REQUIRED");
+        }
+
+        const variant = product.variants.find(
+          (item) =>
+            item.size === (requiresSize ? size : null) &&
+            item.color === (requiresColor ? color : null),
+        );
+
+        if (!variant) {
+          throw new Error("VARIANT_NOT_FOUND");
+        }
+
+        // Mise à jour atomique du stock de la variante uniquement.
+        const stockUpdate = await tx.productVariant.updateMany({
+          where: {
+            id: variant.id,
+            stock: { gte: quantity },
+          },
+          data: {
+            stock: { decrement: quantity },
+          },
+        });
+
+        if (stockUpdate.count !== 1) {
+          throw new Error("INSUFFICIENT_STOCK");
+        }
+
+        productVariantId = variant.id;
+      } else {
+        // Un produit simple utilise exclusivement Product.stock.
+        const stockUpdate = await tx.product.updateMany({
+          where: {
+            id: product.id,
+            stock: { gte: quantity },
+          },
+          data: {
+            stock: { decrement: quantity },
+          },
+        });
+
+        if (stockUpdate.count !== 1) {
+          throw new Error("INSUFFICIENT_STOCK");
+        }
       }
 
-      // La commande et la diminution du stock appartiennent
-      // à la même transaction.
-      return tx.order.create({
+      const reservationExpiresAt = new Date(
+        Date.now() + RESERVATION_HOURS * 60 * 60 * 1000,
+      );
+
+      const order = await tx.order.create({
         data: {
           productId: product.id,
+          productVariantId,
           quantity,
-          customerFbId: input.customerFbId,
+          customerId: customer.id,
+          customerFbId,
           customerName: input.customerName ?? null,
           sourceCommentId,
+          reservationHours: RESERVATION_HOURS,
+          reservationExpiresAt,
         },
       });
+
+      await tx.stockMovement.create({
+        data: {
+          productId: product.id,
+          productVariantId,
+          orderId: order.id,
+          type: "RESERVATION",
+          quantity: -quantity,
+          note: `Réservation de la commande ${order.id}`,
+          idempotencyKey: `reservation:${order.id}`,
+        },
+      });
+
+      return order;
     });
 
     return {
       success: true,
-      message: "Commande créée et stock mis à jour.",
+      message: "Commande créée et stock réservé.",
       order,
     };
   } catch (error) {
     if (error instanceof Error) {
-      switch (error.message) {
-        case "DUPLICATE_COMMENT":
-          return {
-            success: false,
-            duplicate: true,
-            message: "Ce commentaire a déjà été traité.",
-          };
+      const messages: Record<string, string> = {
+        DUPLICATE_COMMENT: "Ce commentaire a déjà été traité.",
+        PRODUCT_NOT_FOUND: "Produit introuvable.",
+        VARIANTS_NOT_CONFIGURED:
+          "Les variantes de ce produit ne sont pas encore configurées.",
+        SIZE_AND_COLOR_REQUIRED:
+          "Merci de préciser la taille et la couleur souhaitées.",
+        SIZE_REQUIRED: "Merci de préciser la taille souhaitée.",
+        COLOR_REQUIRED: "Merci de préciser la couleur souhaitée.",
+        VARIANT_NOT_FOUND:
+          "Cette combinaison de taille et de couleur n'existe pas.",
+        INSUFFICIENT_STOCK:
+          "Cette variante ou ce produit n'a plus assez de stock.",
+      };
 
-        case "PRODUCT_NOT_FOUND":
-          return {
-            success: false,
-            duplicate: false,
-            message: "Produit introuvable.",
-          };
-
-        case "INSUFFICIENT_STOCK":
-          return {
-            success: false,
-            duplicate: false,
-            message: "Stock insuffisant.",
-          };
+      if (messages[error.message]) {
+        return {
+          success: false,
+          duplicate: error.message === "DUPLICATE_COMMENT",
+          message: messages[error.message],
+        };
       }
     }
 
-    // La contrainte unique PostgreSQL reste la protection finale
-    // si deux traitements passent simultanément la vérification initiale.
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
@@ -129,12 +223,15 @@ export async function createOrderFromComment(input: CreateOrderInput) {
       }
     }
 
-    // Les erreurs inattendues doivent rester visibles dans les logs.
     throw error;
   }
 }
+
+
 export async function confirmOrder(orderId: string) {
   return prisma.$transaction(async (tx) => {
+    const now = new Date();
+
     const order = await tx.order.findUnique({
       where: { id: orderId },
     });
@@ -143,6 +240,17 @@ export async function confirmOrder(orderId: string) {
       return {
         success: false,
         message: "Commande introuvable.",
+      };
+    }
+
+    if (
+      !order.reservationExpiresAt ||
+      order.reservationExpiresAt <= now
+    ) {
+      return {
+        success: false,
+        message:
+          "Cette réservation est expirée ou ne possède pas de date d'expiration.",
       };
     }
 
@@ -157,6 +265,9 @@ export async function confirmOrder(orderId: string) {
       where: {
         id: orderId,
         status: "PENDING",
+        reservationExpiresAt: {
+          gt: now,
+        },
       },
       data: {
         status: "CONFIRMED",
@@ -176,6 +287,7 @@ export async function confirmOrder(orderId: string) {
     };
   });
 }
+
 
 export async function cancelOrder(orderId: string) {
   return prisma.$transaction(async (tx) => {
@@ -197,29 +309,54 @@ export async function cancelOrder(orderId: string) {
       };
     }
 
+    const releasedAt = new Date();
+
     const updated = await tx.order.updateMany({
       where: {
         id: orderId,
         status: "PENDING",
+        stockReleasedAt: null,
       },
       data: {
         status: "CANCELLED",
+        stockReleasedAt: releasedAt,
       },
     });
 
     if (updated.count !== 1) {
       return {
         success: false,
-        message: "La commande a déjà été modifiée.",
+        message: "La commande a déjà été modifiée ou son stock restitué.",
       };
     }
 
-    await tx.product.update({
-      where: { id: order.productId },
-      data: {
-        stock: {
-          increment: order.quantity,
+    if (order.productVariantId) {
+      // Restitution au stock de la variante commandée.
+      await tx.productVariant.update({
+        where: { id: order.productVariantId },
+        data: {
+          stock: { increment: order.quantity },
         },
+      });
+    } else {
+      // Restitution au stock du produit simple.
+      await tx.product.update({
+        where: { id: order.productId },
+        data: {
+          stock: { increment: order.quantity },
+        },
+      });
+    }
+
+    await tx.stockMovement.create({
+      data: {
+        productId: order.productId,
+        productVariantId: order.productVariantId,
+        orderId: order.id,
+        type: "RELEASE",
+        quantity: order.quantity,
+        note: `Restitution après annulation de la commande ${order.id}`,
+        idempotencyKey: `release:${order.id}`,
       },
     });
 

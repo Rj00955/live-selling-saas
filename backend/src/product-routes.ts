@@ -1,3 +1,4 @@
+
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { prisma } from "./db.js";
@@ -16,11 +17,19 @@ const productIdSchema = z.object({
   id: z.string().trim().min(1, "Identifiant produit obligatoire."),
 });
 
+const variantSchema = z.object({
+  size: z.string().trim().min(1).nullable().optional(),
+  color: z.string().trim().min(1).nullable().optional(),
+  stock: z.number().int().min(0),
+}).strict();
+
 const createProductSchema = z.object({
   code: z.string().trim().min(1),
   name: z.string().trim().min(1),
   price: z.number().int().positive(),
   stock: z.number().int().min(0),
+  hasVariants: z.boolean().optional(),
+  variants: z.array(variantSchema).optional(),
 }).strict();
 
 const updateProductSchema = z.object({
@@ -28,6 +37,7 @@ const updateProductSchema = z.object({
   name: z.string().trim().min(1).optional(),
   price: z.number().int().positive().optional(),
   stock: z.number().int().min(0).optional(),
+  variants: z.array(variantSchema).optional(),
 }).strict().refine(
   (data) => Object.keys(data).length > 0,
   "Au moins un champ doit être fourni.",
@@ -40,10 +50,24 @@ function areDevProductRoutesEnabled() {
   );
 }
 
+function isPrismaError(
+  error: unknown,
+): error is { code: string; message?: string; meta?: { code?: string } } {
+  return typeof error === "object" && error !== null && "code" in error;
+}
+
+function isValidationError(error: unknown): error is Error {
+  return (
+    error instanceof Error &&
+    !["PRODUCT_NOT_FOUND", "PRODUCT_HAS_HISTORY"].includes(error.message)
+  );
+}
+
 export const productRoutes: FastifyPluginAsync = async (app) => {
-  // Lister les produits
+  // Lister les produits avec leurs variantes.
   app.get("/products", async () => {
     const products = await prisma.product.findMany({
+      include: { variants: true },
       orderBy: { createdAt: "desc" },
     });
 
@@ -54,7 +78,7 @@ export const productRoutes: FastifyPluginAsync = async (app) => {
     };
   });
 
-  // Rechercher un produit par son code
+  // Rechercher un produit par son code.
   app.get<{ Params: { code: string } }>(
     "/products/:code",
     async (request, reply) => {
@@ -80,7 +104,7 @@ export const productRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  // Ajouter un produit
+  // Ajouter un produit simple ou avec variantes.
   app.post("/products", async (request, reply) => {
     if (!areDevProductRoutesEnabled()) {
       return reply.code(403).send({
@@ -108,15 +132,17 @@ export const productRoutes: FastifyPluginAsync = async (app) => {
         product,
       });
     } catch (error) {
-      if (
-        typeof error === "object" &&
-        error !== null &&
-        "code" in error &&
-        error.code === "P2002"
-      ) {
+      if (isPrismaError(error) && error.code === "P2002") {
         return reply.code(409).send({
           success: false,
           message: "Ce code produit existe déjà.",
+        });
+      }
+
+      if (isValidationError(error)) {
+        return reply.code(400).send({
+          success: false,
+          message: error.message,
         });
       }
 
@@ -124,7 +150,7 @@ export const productRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
-  // Modifier un produit
+  // Modifier un produit et éventuellement ses stocks de variantes.
   app.patch<{ Params: { id: string } }>(
     "/products/:id",
     async (request, reply) => {
@@ -142,6 +168,9 @@ export const productRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(400).send({
           success: false,
           message: "Données de modification invalides.",
+          errors: !parsedBody.success
+            ? parsedBody.error.issues
+            : undefined,
         });
       }
 
@@ -157,24 +186,25 @@ export const productRoutes: FastifyPluginAsync = async (app) => {
           product,
         });
       } catch (error) {
-        if (
-          typeof error === "object" &&
-          error !== null &&
-          "code" in error
-        ) {
-          if (error.code === "P2025") {
-            return reply.code(404).send({
-              success: false,
-              message: "Produit introuvable.",
-            });
-          }
+        if (error instanceof Error && error.message === "PRODUCT_NOT_FOUND") {
+          return reply.code(404).send({
+            success: false,
+            message: "Produit introuvable.",
+          });
+        }
 
-          if (error.code === "P2002") {
-            return reply.code(409).send({
-              success: false,
-              message: "Ce code produit existe déjà.",
-            });
-          }
+        if (isPrismaError(error) && error.code === "P2002") {
+          return reply.code(409).send({
+            success: false,
+            message: "Ce code produit existe déjà.",
+          });
+        }
+
+        if (isValidationError(error)) {
+          return reply.code(400).send({
+            success: false,
+            message: error.message,
+          });
         }
 
         throw error;
@@ -182,7 +212,7 @@ export const productRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  // Supprimer un produit
+  // Supprimer un produit sans compromettre l'historique.
   app.delete<{ Params: { id: string } }>(
     "/products/:id",
     async (request, reply) => {
@@ -210,42 +240,39 @@ export const productRoutes: FastifyPluginAsync = async (app) => {
           message: "Produit supprimé avec succès.",
           product,
         });
-      }
-       
-             catch (error) {
-        if (typeof error === "object" && error !== null) {
-          const err = error as {
-            code?: string;
-            message?: string;
-            meta?: {
-              code?: string;
-            };
-          };
-
-          if (err.code === "P2025") {
-            return reply.code(404).send({
-              success: false,
-              message: "Produit introuvable.",
-            });
-          }
-
-          if (
-            err.code === "P2003" ||
-            err.meta?.code === "23001" ||
-            err.message?.includes("violates RESTRICT setting of foreign key")
-          ) {
-            return reply.code(409).send({
-              success: false,
-              message:
-                "Ce produit est déjà associé à une ou plusieurs commandes. Pour conserver l'historique des ventes, il ne peut pas être supprimé.",
-            });
-          }
+      } catch (error) {
+        if (error instanceof Error && error.message === "PRODUCT_NOT_FOUND") {
+          return reply.code(404).send({
+            success: false,
+            message: "Produit introuvable.",
+          });
         }
 
-        request.log.error(error);
+        if (
+          error instanceof Error &&
+          error.message === "PRODUCT_HAS_HISTORY"
+        ) {
+          return reply.code(409).send({
+            success: false,
+            message:
+              "Ce produit possède un historique de stock ou de commandes et ne peut pas être supprimé.",
+          });
+        }
+
+        if (isPrismaError(error) && error.code === "P2003") {
+          return reply.code(409).send({
+            success: false,
+            message:
+              "Ce produit est associé à des données qui empêchent sa suppression.",
+          });
+        }
+
+        request.log.error({ error }, "Product deletion failed");
+
         return reply.code(500).send({
           success: false,
-          message: "Une erreur est survenue lors de la suppression du produit.",
+          message:
+            "Une erreur est survenue lors de la suppression du produit.",
         });
       }
     },

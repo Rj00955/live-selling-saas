@@ -14,14 +14,42 @@ enum OrderStatus {
   CANCELLED
 }
 
+enum StockMovementType {
+  RESTOCK
+  RESERVATION
+  RELEASE
+  ADJUSTMENT
+}
+
 model Product {
-  id        String   @id @default(cuid())
-  code      String   @unique
-  name      String
-  price     Int
-  stock     Int      @default(0)
-  createdAt DateTime @default(now())
-  orders    Order[]
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  price       Int
+  stock       Int      @default(0)
+  hasVariants Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  variants       ProductVariant[]
+  orders         Order[]
+  stockMovements StockMovement[]
+}
+
+model ProductVariant {
+  id             String   @id @default(cuid())
+  productId      String
+  combinationKey String
+  size           String?
+  color          String?
+  stock          Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  product        Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  orders         Order[]
+  stockMovements StockMovement[]
+
+  @@unique([productId, combinationKey])
+  @@index([productId])
 }
 
 model LiveSession {
@@ -42,19 +70,70 @@ model Comment {
   message       String
   createdAt     DateTime     @default(now())
   liveSessionId String?
+ customerId String?
+customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
   liveSession   LiveSession? @relation(fields: [liveSessionId], references: [id])
 }
 
 model Order {
-  id            String       @id @default(cuid())
-  status        OrderStatus  @default(PENDING)
-  quantity      Int          @default(1)
-  customerFbId  String
-  customerName  String?
-  createdAt     DateTime     @default(now())
-  productId     String
-  product       Product      @relation(fields: [productId], references: [id])
-  liveSessionId String?
-  liveSession   LiveSession? @relation(fields: [liveSessionId], references: [id])
-  sourceCommentId String?      @unique
+  id           String      @id @default(cuid())
+  status       OrderStatus @default(PENDING)
+  quantity     Int         @default(1)
+  customerFbId String
+  customerName String?
+  createdAt    DateTime    @default(now())
+
+  productId        String
+  productVariantId String?
+  liveSessionId    String?
+  sourceCommentId  String? @unique
+
+  reservationHours     Int       @default(24)
+  reservationExpiresAt DateTime?
+  stockReleasedAt      DateTime?
+
+  customerId String?
+
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  product        Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productVariant ProductVariant? @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
+  liveSession    LiveSession?    @relation(fields: [liveSessionId], references: [id])
+  stockMovements StockMovement[]
+
+  @@index([status, reservationExpiresAt])
+  @@index([productVariantId])
+}
+
+model StockMovement {
+  id               String            @id @default(cuid())
+  productId        String
+  productVariantId String?
+  orderId          String?
+  type             StockMovementType
+  quantity         Int
+  note             String?
+  idempotencyKey   String            @unique
+  createdAt        DateTime          @default(now())
+
+  product        Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productVariant ProductVariant? @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
+  order          Order?          @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  
+  @@index([productId, createdAt])
+  @@index([productVariantId, createdAt])
+  @@index([orderId])
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  fbUserId  String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders   Order[]
+  comments Comment[]
+
+  @@index([name])
 }

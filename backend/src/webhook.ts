@@ -6,14 +6,12 @@ import { classifyComment } from "./order-parser.js";
 import { createOrderFromComment } from "./order-service.js";
 
 export async function webhookRoutes(app: FastifyInstance) {
-  // Garde le corps brut pour pouvoir vérifier la signature.
   app.addContentTypeParser(
     "application/json",
     { parseAs: "buffer" },
-    (_req, body, done) => done(null, body)
+    (_req, body, done) => done(null, body),
   );
 
-  // Vérification demandée par Meta lors de la configuration.
   app.get("/webhook", async (req, reply) => {
     const q = req.query as Record<string, string>;
 
@@ -27,12 +25,10 @@ export async function webhookRoutes(app: FastifyInstance) {
     return reply.code(403).send("Forbidden");
   });
 
-  // Réception des événements Facebook.
   app.post("/webhook", async (req, reply) => {
     const raw = req.body as Buffer;
     const secret = process.env.META_APP_SECRET;
 
-    // Vérification de la signature Meta si le secret est configuré.
     if (secret) {
       const signature = req.headers["x-hub-signature-256"];
 
@@ -45,7 +41,7 @@ export async function webhookRoutes(app: FastifyInstance) {
         signature.length === expected.length &&
         crypto.timingSafeEqual(
           Buffer.from(signature),
-          Buffer.from(expected)
+          Buffer.from(expected),
         );
 
       if (!valid) {
@@ -63,7 +59,6 @@ export async function webhookRoutes(app: FastifyInstance) {
           for (const change of entry.changes) {
             const value = change.value;
 
-            // Traite uniquement les nouveaux commentaires.
             if (
               change.field !== "feed" ||
               value?.item !== "comment" ||
@@ -83,44 +78,65 @@ export async function webhookRoutes(app: FastifyInstance) {
                 : null;
             const message = value.message;
 
-            // 1. Enregistrer le commentaire dans PostgreSQL.
-            await prisma.comment.upsert({
-              where: {
-                fbCommentId: commentId,
-              },
-              update: {
-                message,
-                userName: customerName,
-              },
-              create: {
-                fbCommentId: commentId,
-                fbUserId: customerFbId,
-                userName: customerName,
-                message,
-              },
-            });
+            // Enregistrer le client ou actualiser ses informations
+const customer = await prisma.customer.upsert({
+  where: {
+    fbUserId: customerFbId,
+  },
+  update: {
+    name: customerName ?? undefined,
+  },
+  create: {
+    fbUserId: customerFbId,
+    name: customerName,
+  },
+});
 
-            // 2. Extraire le code produit et la quantité.
+// Enregistrer le commentaire et le relier au client
+      await prisma.comment.upsert({
+  where: {
+    fbCommentId: commentId,
+  },
+  update: {
+    message,
+    userName: customerName,
+    customerId: customer.id,
+  },
+  create: {
+    fbCommentId: commentId,
+    fbUserId: customerFbId,
+    userName: customerName,
+    message,
+    customerId: customer.id,
+  },
+});
+
             const parsed = classifyComment(message);
 
-if (parsed.intent !== "PURCHASE" || !parsed.productCode) {
-  req.log.info(
-    {
-      commentId,
-      message,
-      intent: parsed.intent,
-    },
-    "Comment saved without creating an order"
-  );
-  continue;
-}
+            if (parsed.intent !== "PURCHASE" || !parsed.productCode) {
+              req.log.info(
+                {
+                  commentId,
+                  message,
+                  intent: parsed.intent,
+                },
+                "Comment saved without creating an order",
+              );
+              continue;
+            }
 
-const { productCode, quantity } = parsed;
+            const {
+              productCode,
+              quantity,
+              size,
+              color,
+            } = parsed;
 
-            // 3. Créer la commande et déduire la quantité du stock.
             const result = await createOrderFromComment({
               productCode,
               quantity,
+              size,
+              color,
               customerFbId,
               customerName,
               sourceCommentId: commentId,
@@ -132,14 +148,16 @@ const { productCode, quantity } = parsed;
                   commentId,
                   productCode,
                   quantity,
+                  size,
+                  color,
                   orderId: result.order.id,
                 },
-                "Order created from Facebook comment"
+                "Order created from Facebook comment",
               );
             } else if ("duplicate" in result && result.duplicate) {
               req.log.info(
                 { commentId, productCode },
-                "Duplicate comment ignored"
+                "Duplicate comment ignored",
               );
             } else {
               req.log.info(
@@ -147,9 +165,11 @@ const { productCode, quantity } = parsed;
                   commentId,
                   productCode,
                   quantity,
+                  size,
+                  color,
                   message: result.message,
                 },
-                "No order created from Facebook comment"
+                "No order created from Facebook comment",
               );
             }
           }
@@ -160,7 +180,7 @@ const { productCode, quantity } = parsed;
     } catch (error) {
       req.log.error(
         { error },
-        "Failed to process webhook event"
+        "Failed to process webhook event",
       );
 
       return reply.code(500).send("Webhook processing failed");
