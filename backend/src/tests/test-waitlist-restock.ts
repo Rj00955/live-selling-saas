@@ -1,6 +1,6 @@
 ﻿import assert from "node:assert/strict";
 import { prisma } from "../config/db.js";
-import { createOrderFromComment } from "../services/order-service.js";
+import { confirmOrder, createOrderFromComment } from "../services/order-service.js";
 import { updateProduct } from "../services/product-service.js";
 
 async function main() {
@@ -77,8 +77,28 @@ async function main() {
 
     assert.equal(entries[0].status, "RESERVED");
     assert.ok(entries[0].order);
-    assert.equal(entries[0].order?.reservationExpiresAt, null);
+    assert.equal(entries[0].order.status, "PENDING");
+    assert.ok(entries[0].order.reservationExpiresAt);
+    assert.ok(entries[0].order.reservationExpiresAt.getTime() > Date.now());
+    assert.ok(
+      entries[0].order.reservationExpiresAt.getTime() - Date.now() <=
+        24 * 60 * 60 * 1000,
+    );
     assert.equal(entries[1].status, "WAITING");
+
+    // Une réservation issue de la liste d'attente doit pouvoir être confirmée.
+    const confirmation = await confirmOrder(entries[0].order.id);
+    assert.equal(confirmation.success, true);
+
+    const confirmedOrder = await prisma.order.findUniqueOrThrow({
+      where: { id: entries[0].order.id },
+    });
+    const confirmedEntry = await prisma.waitlistEntry.findUniqueOrThrow({
+      where: { fbCommentId: commentIds[0] },
+    });
+
+    assert.equal(confirmedOrder.status, "CONFIRMED");
+    assert.equal(confirmedEntry.status, "FULFILLED");
 
     const updatedProduct = await prisma.product.findUniqueOrThrow({
       where: { id: product.id },
@@ -86,9 +106,10 @@ async function main() {
 
     assert.equal(updatedProduct.stock, 4);
 
-    console.log("SUCCÈS : le premier client FIFO a obtenu sa réservation.");
+    console.log("SUCCÈS : le premier client FIFO a obtenu sa réservation de 24 h.");
+    console.log("SUCCÈS : la réservation issue de la liste d'attente est confirmable.");
+    console.log("SUCCÈS : l'entrée est passée à FULFILLED.");
     console.log("SUCCÈS : le deuxième client reste en attente.");
-    console.log("SUCCÈS : le délai de 24 heures n'a pas commencé.");
     console.log("SUCCÈS : le stock disponible est de 4 unités.");
   } finally {
     await prisma.stockMovement.deleteMany({ where: { productId } });
