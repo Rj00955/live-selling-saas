@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import { prisma } from "../config/db.js";
 import { createOrderFromComment } from "../services/order-service.js";
 import { createProduct, updateProduct } from "../services/product-service.js";
@@ -87,7 +87,13 @@ async function main() {
 
     assert.equal(entries[0].status, "RESERVED");
     assert.ok(entries[0].order);
-    assert.equal(entries[0].order?.reservationExpiresAt, null);
+    assert.equal(entries[0].order.status, "PENDING");
+    assert.ok(entries[0].order.reservationExpiresAt);
+    assert.ok(entries[0].order.reservationExpiresAt.getTime() > Date.now());
+    assert.ok(
+      entries[0].order.reservationExpiresAt.getTime() - Date.now() <=
+        24 * 60 * 60 * 1000,
+    );
     assert.equal(entries[1].status, "WAITING");
 
     const variants = await prisma.productVariant.findMany({
@@ -108,7 +114,7 @@ async function main() {
 
     console.log("SUCCÈS : le premier client FIFO a obtenu la réservation M / NOIR.");
     console.log("SUCCÈS : le deuxième client reste en attente.");
-    console.log("SUCCÈS : le délai de 24 heures n'a pas commencé.");
+    console.log("SUCCÈS : le délai de 24 heures a commencé dès la réservation.");
     console.log("SUCCÈS : le stock M / NOIR est de 4 unités.");
     console.log("SUCCÈS : le stock L / BLANC est resté à 2 unités.");
   } finally {

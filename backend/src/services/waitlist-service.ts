@@ -95,7 +95,11 @@ export async function reserveNextWaitlistEntryTx(
     return null;
   }
 
-  // Create the order without starting the 24-hour countdown.
+  // Start the 24-hour countdown when stock is actually allocated.
+  const reservationExpiresAt = new Date(
+    Date.now() + RESERVATION_HOURS * 60 * 60 * 1000,
+  );
+
   const order = await tx.order.create({
     data: {
       productId,
@@ -107,7 +111,7 @@ export async function reserveNextWaitlistEntryTx(
       liveSessionId: entry.comment.liveSessionId,
       sourceCommentId: entry.fbCommentId,
       reservationHours: RESERVATION_HOURS,
-      reservationExpiresAt: null,
+      reservationExpiresAt,
     },
   });
 
