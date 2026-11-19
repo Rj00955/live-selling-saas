@@ -180,17 +180,17 @@ async function main() {
     console.log("SUCCÈS : le stock final est correct.");
   } finally {
     // Nettoyer les données du scénario.
-    await prisma.stockMovement.deleteMany({
-      where: { productId },
-    });
+    if (productId) {
+      await prisma.stockMovement.deleteMany({ where: { productId } });
+    }
 
     await prisma.waitlistEntry.deleteMany({
       where: { fbCommentId: { in: commentIds } },
     });
 
-    await prisma.order.deleteMany({
-      where: { productId },
-    });
+    if (productId) {
+      await prisma.order.deleteMany({ where: { productId } });
+    }
 
     await prisma.comment.deleteMany({
       where: { fbCommentId: { in: commentIds } },

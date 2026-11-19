@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import { prisma } from "../config/db.js";
 import { confirmOrder, createOrderFromComment } from "../services/order-service.js";
 import { updateProduct } from "../services/product-service.js";
@@ -112,11 +112,15 @@ async function main() {
     console.log("SUCCÈS : le deuxième client reste en attente.");
     console.log("SUCCÈS : le stock disponible est de 4 unités.");
   } finally {
-    await prisma.stockMovement.deleteMany({ where: { productId } });
+    if (productId) {
+      await prisma.stockMovement.deleteMany({ where: { productId } });
+    }
     await prisma.waitlistEntry.deleteMany({
       where: { fbCommentId: { in: commentIds } },
     });
-    await prisma.order.deleteMany({ where: { productId } });
+    if (productId) {
+      await prisma.order.deleteMany({ where: { productId } });
+    }
     await prisma.comment.deleteMany({
       where: { fbCommentId: { in: commentIds } },
     });
