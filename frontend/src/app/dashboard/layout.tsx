@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { Suspense, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AuthProvider, useAuth } from "../../components/auth-provider";
@@ -327,9 +327,17 @@ export default function DashboardLayout({
 }: {
   children: ReactNode;
 }) {
-  return (
-    <AuthProvider>
-      <DashboardShell>{children}</DashboardShell>
-    </AuthProvider>
+   return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-[#F5F6F4] text-sm text-[#7B857D]">
+          Chargement…
+        </div>
+      }
+    >
+      <AuthProvider>
+        <DashboardShell>{children}</DashboardShell>
+      </AuthProvider>
+    </Suspense>
   );
 }
