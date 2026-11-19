@@ -1,13 +1,13 @@
 
 import "dotenv/config";
 import Fastify from "fastify";
-import { prisma } from "./db.js";
-import { webhookRoutes } from "./webhook.js";
-import { orderRoutes } from "./order-routes.js";
-import { productRoutes } from "./product-routes.js";
+import { prisma } from "./config/db.js";
+import { webhookRoutes } from "./webhooks/webhook.js";
+import { orderRoutes } from "./routes/order-routes.js";
+import { productRoutes } from "./routes/product-routes.js";
 import cors from "@fastify/cors";
-import { startReservationExpirationJob } from "./reservation-expiration-service.js";
-import { customerRoutes } from "./customer-routes.js";
+import { startReservationExpirationJob } from "./services/reservation-expiration-service.js";
+import { customerRoutes } from "./routes/customer-routes.js";
 
 const app = Fastify({ logger: true });
 

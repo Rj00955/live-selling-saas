@@ -21,6 +21,14 @@ enum StockMovementType {
   ADJUSTMENT
 }
 
+enum WaitlistStatus {
+  WAITING
+  RESERVED
+  NOTIFIED
+  FULFILLED
+  CANCELLED
+}
+
 model Product {
   id          String   @id @default(cuid())
   code        String   @unique
@@ -29,7 +37,7 @@ model Product {
   stock       Int      @default(0)
   hasVariants Boolean  @default(false)
   createdAt   DateTime @default(now())
-
+  waitlistEntries WaitlistEntry[]
   variants       ProductVariant[]
   orders         Order[]
   stockMovements StockMovement[]
@@ -43,7 +51,7 @@ model ProductVariant {
   color          String?
   stock          Int      @default(0)
   createdAt      DateTime @default(now())
-
+   waitlistEntries WaitlistEntry[]
   product        Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
   orders         Order[]
   stockMovements StockMovement[]
@@ -71,6 +79,7 @@ model Comment {
   createdAt     DateTime     @default(now())
   liveSessionId String?
  customerId String?
+  waitlistEntry WaitlistEntry?
 customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
   liveSession   LiveSession? @relation(fields: [liveSessionId], references: [id])
 }
@@ -91,7 +100,7 @@ model Order {
   reservationHours     Int       @default(24)
   reservationExpiresAt DateTime?
   stockReleasedAt      DateTime?
-
+  waitlistEntry      WaitlistEntry?
   customerId String?
 
   customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
@@ -136,4 +145,22 @@ model Customer {
   comments Comment[]
 
   @@index([name])
+}
+
+model WaitlistEntry {
+  id               String         @id @default(cuid())
+  fbCommentId      String         @unique
+  productId        String
+  productVariantId String?
+  quantity         Int             @default(1)
+  status           WaitlistStatus @default(WAITING)
+  createdAt        DateTime       @default(now())
+  notifiedAt       DateTime?
+  orderId           String?        @unique
+  comment Comment         @relation(fields: [fbCommentId], references: [fbCommentId], onDelete: Restrict)
+  product Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productVariant ProductVariant? @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
+  order Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  @@index([status, createdAt])
+  @@index([productId, productVariantId, status])
 }
