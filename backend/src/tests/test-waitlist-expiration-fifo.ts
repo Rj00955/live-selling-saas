@@ -126,7 +126,46 @@ async function main() {
     assert.equal(updatedEntries[1].status, "WAITING");
 
     assert.ok(updatedEntries[0].order);
-    assert.equal(updatedEntries[0].order?.reservationExpiresAt, null);
+    const firstWaitlistOrder = updatedEntries[0].order;
+    assert.equal(firstWaitlistOrder.status, "PENDING");
+    assert.ok(firstWaitlistOrder.reservationExpiresAt);
+    assert.ok(firstWaitlistOrder.reservationExpiresAt.getTime() > Date.now());
+    assert.ok(
+      firstWaitlistOrder.reservationExpiresAt.getTime() - Date.now() <=
+        24 * 60 * 60 * 1000,
+    );
+
+    // Faire expirer la réservation attribuée au premier client FIFO.
+    await prisma.order.update({
+      where: { id: firstWaitlistOrder.id },
+      data: {
+        reservationExpiresAt: new Date(Date.now() - 60_000),
+      },
+    });
+
+    const secondExpiredCount = await expireReservations();
+    assert.equal(secondExpiredCount, 1);
+
+    // Le deuxième client doit maintenant recevoir la réservation.
+    const afterSecondExpiration = await prisma.waitlistEntry.findMany({
+      where: {
+        fbCommentId: {
+          in: commentIds.slice(1),
+        },
+      },
+      orderBy: { createdAt: "asc" },
+      include: { order: true },
+    });
+
+    assert.equal(afterSecondExpiration[0].status, "CANCELLED");
+    assert.equal(afterSecondExpiration[1].status, "RESERVED");
+    assert.ok(afterSecondExpiration[1].order);
+    assert.equal(afterSecondExpiration[1].order.status, "PENDING");
+    assert.ok(afterSecondExpiration[1].order.reservationExpiresAt);
+    assert.ok(
+      afterSecondExpiration[1].order.reservationExpiresAt.getTime() >
+        Date.now(),
+    );
 
     const updatedProduct = await prisma.product.findUnique({
       where: { id: product.id },
@@ -135,9 +174,9 @@ async function main() {
     assert.equal(updatedProduct?.stock, 0);
 
     console.log("SUCCÈS : la première commande a expiré.");
-    console.log("SUCCÈS : le premier client FIFO a obtenu la réservation.");
-    console.log("SUCCÈS : le deuxième client est toujours en attente.");
-    console.log("SUCCÈS : aucun délai de 24 heures n'a commencé.");
+    console.log("SUCCÈS : le premier client FIFO a obtenu une réservation de 24 h.");
+    console.log("SUCCÈS : sa réservation a expiré automatiquement.");
+    console.log("SUCCÈS : le deuxième client FIFO a ensuite été réservé.");
     console.log("SUCCÈS : le stock final est correct.");
   } finally {
     // Nettoyer les données du scénario.
