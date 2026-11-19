@@ -1,6 +1,6 @@
 
 "use client";
-
+import { apiFetch } from "../../../lib/api";
 import { useCallback, useEffect, useState } from "react";
 
 const API_URL =
@@ -45,7 +45,7 @@ export default function OrdersPage() {
 
   const fetchOrders = useCallback(async () => {
     try {
-      const response = await fetch(`${API_URL}/orders`);
+      const response = await apiFetch(`${API_URL}/orders`);
       const data: OrdersResponse = await response.json();
 
       if (!response.ok) {
@@ -70,7 +70,7 @@ export default function OrdersPage() {
 
   async function loadOrders() {
     try {
-      const response = await fetch(`${API_URL}/orders`);
+      const response = await apiFetch(`${API_URL}/orders`);
       const data: OrdersResponse = await response.json();
 
       if (!response.ok) {
@@ -125,7 +125,7 @@ export default function OrdersPage() {
     setSuccess("");
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_URL}/orders/${order.id}/${action}`,
         { method: "PATCH" }
       );

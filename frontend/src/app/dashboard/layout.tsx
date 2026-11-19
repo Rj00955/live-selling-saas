@@ -4,6 +4,7 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { AuthProvider, useAuth } from "../../components/auth-provider";
 
 type NavItem = {
   label: string;
@@ -212,7 +213,7 @@ function Sidebar({
   );
 }
 
-export default function DashboardLayout({
+function DashboardShell({
   children,
 }: {
   children: ReactNode;
@@ -221,6 +222,13 @@ export default function DashboardLayout({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const title = pageTitles[pathname] ?? "Tiako Live";
+  
+  const { user, signOut } = useAuth();
+  const roleLabels = {
+    ADMIN: "Administrateur",
+    SELLER: "Vendeur",
+    STOCK_MANAGER: "Gestionnaire de stock",
+  } as const;
 
   return (
     <div className="min-h-screen bg-[#F5F6F4]">
@@ -283,16 +291,26 @@ export default function DashboardLayout({
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="hidden text-right sm:block">
+                        <div className="hidden text-right sm:block">
               <p className="text-sm font-semibold text-[#252B27]">
-                Espace vendeur
+                {user.name}
               </p>
-              <p className="text-xs text-[#7B857D]">Tiako Live</p>
+              <p className="text-xs text-[#7B857D]">
+                {roleLabels[user.role]}
+              </p>
             </div>
 
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#DCE9DF] text-sm font-bold text-[#405C49]">
-              TL
+              {user.name.slice(0, 2).toUpperCase()}
             </div>
+
+            <button
+              type="button"
+              onClick={signOut}
+              className="rounded-lg border border-[#D5DBD4] px-3 py-2 text-sm text-[#405C49] transition-colors hover:bg-[#F0F3EF]"
+            >
+              Déconnexion
+            </button>
           </div>
         </header>
 
@@ -301,5 +319,17 @@ export default function DashboardLayout({
         </main>
       </div>
     </div>
+  );
+}
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  return (
+    <AuthProvider>
+      <DashboardShell>{children}</DashboardShell>
+    </AuthProvider>
   );
 }

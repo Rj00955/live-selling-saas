@@ -1,6 +1,6 @@
 
 "use client";
-
+import { apiFetch } from "../../../lib/api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 const API_URL =
@@ -98,7 +98,7 @@ export default function ProductsPage() {
 const [deleting, setDeleting] = useState(false);
 
   const loadProducts = useCallback(async () => {
-    const response = await fetch(`${API_URL}/products`);
+    const response = await apiFetch(`${API_URL}/products`);
 
     if (!response.ok) {
       throw new Error("Impossible de charger les produits.");
@@ -417,7 +417,7 @@ const [deleting, setDeleting] = useState(false);
     setSaving(true);
 
     try {
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -446,7 +446,7 @@ const [deleting, setDeleting] = useState(false);
   setError("");
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `${API_URL}/products/${productToDelete.id}`,
       {
         method: "DELETE",

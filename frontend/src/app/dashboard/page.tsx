@@ -1,6 +1,6 @@
 
 "use client";
-
+import { apiFetch } from "../../lib/api";
 import { useCallback, useEffect, useState } from "react";
 
 const API_URL =
@@ -36,7 +36,7 @@ export default function DashboardOverview() {
 
  const loadProducts = useCallback(async () => {
   try {
-    const response = await fetch(`${API_URL}/products`);
+    const response = await apiFetch(`${API_URL}/products`);
 
     if (!response.ok) {
       throw new Error("Impossible de charger les produits.");
