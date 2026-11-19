@@ -87,7 +87,13 @@ async function main() {
 
     assert.equal(entries[0].status, "RESERVED");
     assert.ok(entries[0].order);
-    assert.equal(entries[0].order?.reservationExpiresAt, null);
+    assert.equal(entries[0].order.status, "PENDING");
+    assert.ok(entries[0].order.reservationExpiresAt);
+    assert.ok(entries[0].order.reservationExpiresAt.getTime() > Date.now());
+    assert.ok(
+      entries[0].order.reservationExpiresAt.getTime() - Date.now() <=
+        24 * 60 * 60 * 1000,
+    );
     assert.equal(entries[1].status, "WAITING");
 
     const variants = await prisma.productVariant.findMany({
