@@ -18,6 +18,11 @@ export default function LoginPage() {
 
     try {
       await login(email, password);
+      // Si Next.js conserve cette page en mémoire après la connexion,
+      // elle doit rester utilisable : on efface le mot de passe et on
+      // réactive le bouton avant de quitter la page.
+      setPassword("");
+      setSubmitting(false);
       router.replace("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Connexion impossible");

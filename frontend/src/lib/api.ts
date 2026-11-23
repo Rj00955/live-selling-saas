@@ -1,13 +1,21 @@
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
+export const UNAUTHORIZED_EVENT = "tiako:unauthorized";
+
 // Équivalent de fetch() qui envoie toujours le cookie de session.
-// La redirection vers /login est gérée par le composant AuthGuard.
-export function apiFetch(
+// Toute réponse 401 prévient AuthProvider, qui renvoie vers /login.
+export async function apiFetch(
   input: RequestInfo | URL,
   init: RequestInit = {},
 ): Promise<Response> {
-  return fetch(input, { ...init, credentials: "include" });
+  const response = await fetch(input, { ...init, credentials: "include" });
+
+  if (response.status === 401 && typeof window !== "undefined") {
+    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+  }
+
+  return response;
 }
 
 export type AuthUser = {
@@ -21,8 +29,9 @@ export async function login(
   email: string,
   password: string,
 ): Promise<AuthUser> {
-  const response = await apiFetch(`${API_URL}/auth/login`, {
+  const response = await fetch(`${API_URL}/auth/login`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
@@ -42,7 +51,10 @@ export async function login(
 // Renvoie null si la personne n'est pas connectée ou si le serveur est injoignable.
 export async function fetchCurrentUser(): Promise<AuthUser | null> {
   try {
-    const response = await apiFetch(`${API_URL}/auth/me`);
+    const response = await fetch(`${API_URL}/auth/me`, {
+      credentials: "include",
+      cache: "no-store",
+    });
     if (!response.ok) return null;
     const data = (await response.json()) as { user: AuthUser };
     return data.user;
@@ -52,5 +64,8 @@ export async function fetchCurrentUser(): Promise<AuthUser | null> {
 }
 
 export async function logout(): Promise<void> {
-  await apiFetch(`${API_URL}/auth/logout`, { method: "POST" });
+  await fetch(`${API_URL}/auth/logout`, {
+    method: "POST",
+    credentials: "include",
+  });
 }

@@ -8,7 +8,12 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import { fetchCurrentUser, logout, type AuthUser } from "../lib/api";
+import {
+  fetchCurrentUser,
+  logout,
+  UNAUTHORIZED_EVENT,
+  type AuthUser,
+} from "../lib/api";
 
 type AuthContextValue = {
   user: AuthUser;
@@ -29,6 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
 
+  // Vérification initiale de la session
   useEffect(() => {
     let cancelled = false;
 
@@ -40,6 +46,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled = true;
+    };
+  }, [router]);
+
+  // Sortie vers /login dès que la session n'est plus valide :
+  // réponse 401 d'un appel API, retour sur l'onglet, ou page restaurée du cache.
+  useEffect(() => {
+    function leave() {
+      setUser(null);
+      router.replace("/login");
+    }
+
+    function recheck() {
+      fetchCurrentUser().then((current) => {
+        if (!current) leave();
+      });
+    }
+
+    function onPageShow(event: PageTransitionEvent) {
+      if (event.persisted) recheck();
+    }
+
+    function onVisible() {
+      if (document.visibilityState === "visible") recheck();
+    }
+
+    window.addEventListener(UNAUTHORIZED_EVENT, leave);
+    window.addEventListener("pageshow", onPageShow);
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      window.removeEventListener(UNAUTHORIZED_EVENT, leave);
+      window.removeEventListener("pageshow", onPageShow);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [router]);
 
