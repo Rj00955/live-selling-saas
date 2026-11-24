@@ -159,6 +159,15 @@ export function classifyComment(message: string): ParsedComment {
     return result("CANCEL");
   }
 
+  const purchaseIntent =
+  /\b(JE PRENDS|JE PREND|JP|MAKA\s+(?:\d+\s+)?AHO|ALAINA|HAKA|OMEO|RAISO|RESERVE|RESERVER|COMMANDE|COMMANDER|ACHETE|ACHETER)\b/.test(text);
+   
+      if (purchaseIntent && productCode) {
+    return validQuantity
+      ? result("PURCHASE")
+      : result("INVALID_QUANTITY", quantity);
+  }
+  
   // 2. Prix
   if (/\b(OHATRINONA|PRIX|COMBIEN|ARIARY|PRICE)\b/.test(text)) {
     return result("PRICE");
@@ -181,9 +190,7 @@ export function classifyComment(message: string): ParsedComment {
   }
 
   // 5. Achat explicite : priorité sur la détection des variantes
-  const purchaseIntent =
-  /\b(JE PRENDS|JE PREND|JP|MAKA\s+(?:\d+\s+)?AHO|ALAINA|HAKA|OMEO|RAISO|RESERVE|RESERVER|COMMANDE|COMMANDER|ACHETE|ACHETER)\b/.test(text);
-   
+  
     if (purchaseIntent && productCode && !validQuantity) {
     return result("INVALID_QUANTITY", quantity);
   }

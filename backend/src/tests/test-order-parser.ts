@@ -216,3 +216,32 @@ test("HAKA A1 sans quantité utilise une unité", () => {
   assert.equal(result.intent, "PURCHASE");
   assert.equal(result.quantity, 1);
 });
+
+test("HAKA 1 B2 inbox est reconnu comme un achat", () => {
+  const result = classifyComment("HAKA 1 B2 inbox");
+
+  assert.equal(result.intent, "PURCHASE");
+  assert.equal(result.productCode, "B2");
+  assert.equal(result.quantity, 1);
+});
+
+test("JP A1 tana est reconnu comme un achat", () => {
+  const result = classifyComment("JP A1 tana");
+
+  assert.equal(result.intent, "PURCHASE");
+  assert.equal(result.productCode, "A1");
+});
+
+test("Je prends 2 C3 livraison est reconnu comme un achat de 2 unités", () => {
+  const result = classifyComment("Je prends 2 C3 livraison");
+
+  assert.equal(result.intent, "PURCHASE");
+  assert.equal(result.productCode, "C3");
+  assert.equal(result.quantity, 2);
+});
+
+test("Tsy haka A1 inbox reste une annulation", () => {
+  const result = classifyComment("Tsy haka A1 inbox");
+
+  assert.equal(result.intent, "CANCEL");
+});
