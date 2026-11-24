@@ -11,20 +11,6 @@ const customerParamsSchema = z.object({
 });
 
 export const customerRoutes: FastifyPluginAsync = async (app) => {
-  // Protection temporaire des routes en développement
-  app.addHook("preHandler", async (_request, reply) => {
-    const enabled =
-      process.env.NODE_ENV !== "production" &&
-      process.env.ENABLE_DEV_CUSTOMER_ROUTES === "true";
-
-    if (!enabled) {
-      return reply.code(403).send({
-        success: false,
-        message: "Routes clients désactivées.",
-      });
-    }
-  });
-
   // Liste des clients
   app.get("/customers", async () => {
     const customers = await getCustomers();
