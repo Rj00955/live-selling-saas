@@ -2,6 +2,7 @@
 "use client";
 import { apiFetch } from "../../lib/api";
 import { useCallback, useEffect, useState } from "react";
+import { AdminStats } from "../../components/admin-stats";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
@@ -207,6 +208,8 @@ useEffect(() => {
           {error}
         </div>
       )}
+
+            <AdminStats />
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat) => (
