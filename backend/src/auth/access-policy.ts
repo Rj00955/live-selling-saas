@@ -19,6 +19,9 @@ const POLICY: Record<string, Record<string, UserRole[]>> = {
   customers: {
     GET: ["ADMIN", "SELLER"],
   },
+    stats: {
+    GET: ["ADMIN"],
+  },
 };
 
 // À utiliser après `authenticate`, dans le contexte des routes protégées.
